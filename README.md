@@ -5,8 +5,8 @@ languages:
 products:
 - azure
 extensions:
-- services: App-Service
-- platforms: dotnet
+  services: App-Service
+  platforms: dotnet
 ---
 
 # Getting started on managing data connections (such as SQL Database and Redis Cache) for Web Apps in C# #
