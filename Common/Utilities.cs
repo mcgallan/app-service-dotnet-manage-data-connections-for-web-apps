@@ -48,8 +48,9 @@ using Microsoft.Azure.Management.Msi.Fluent;
 using Microsoft.Azure.Management.Eventhub.Fluent;
 using Microsoft.Azure.Management.Monitor.Fluent;
 using Microsoft.Azure.Management.PrivateDns.Fluent;
+using Azure.ResourceManager.Sql;
 
-namespace Microsoft.Azure.Management.Samples.Common
+namespace Azure.ResourceManager.Samples.Common
 {
     public static class Utilities
     {
@@ -311,22 +312,13 @@ namespace Microsoft.Azure.Management.Samples.Common
             Utilities.Log(info.ToString());
         }
 
-        public static void Print(ITopicAuthorizationRule topicAuthorizationRule)
+        public static void Print(ArmResource resource)
         {
             StringBuilder builder = new StringBuilder()
-                    .Append("Service bus topic authorization rule: ").Append(topicAuthorizationRule.Id)
-                    .Append("\n\tName: ").Append(topicAuthorizationRule.Name)
-                    .Append("\n\tResourceGroupName: ").Append(topicAuthorizationRule.ResourceGroupName)
-                    .Append("\n\tNamespace Name: ").Append(topicAuthorizationRule.NamespaceName)
-                    .Append("\n\tTopic Name: ").Append(topicAuthorizationRule.TopicName);
-
-            var rights = topicAuthorizationRule.Rights;
-            builder.Append("\n\tNumber of access rights in queue: ").Append(rights.Count);
-            foreach (var right in rights)
-            {
-                builder.Append("\n\t\tAccessRight: ")
-                        .Append("\n\t\t\tName :").Append(right.ToString());
-            }
+                    .Append("Service bus topic authorization rule: ").Append(resource.Id)
+                    .Append("\n\tName: ").Append(resource.Id.Name)
+                    .Append("\n\tResourceGroupName: ").Append(resource.Id.ResourceGroupName)
+                    .Append("\n\tNamespace Name: ").Append(resource.Id.ResourceType.Namespace);
 
             Log(builder.ToString());
         }
@@ -1313,14 +1305,14 @@ namespace Microsoft.Azure.Management.Samples.Common
             return string.Join(", ", collection);
         }
 
-        public static void PrintSqlServer(ISqlServer sqlServer)
+        public static void PrintSqlServer(SqlServerResource sqlServer)
         {
             var builder = new StringBuilder().Append("Sql Server: ").Append(sqlServer.Id)
-                    .Append("Name: ").Append(sqlServer.Name)
-                    .Append("\n\tResource group: ").Append(sqlServer.ResourceGroupName)
-                    .Append("\n\tRegion: ").Append(sqlServer.Region)
-                    .Append("\n\tSqlServer version: ").Append(sqlServer.Version)
-                    .Append("\n\tFully qualified name for Sql Server: ").Append(sqlServer.FullyQualifiedDomainName);
+                    .Append("Name: ").Append(sqlServer.Data.Name)
+                    .Append("\n\tResource group: ").Append(sqlServer.Id.ResourceGroupName)
+                    .Append("\n\tRegion: ").Append(sqlServer.Data.Location)
+                    .Append("\n\tSqlServer version: ").Append(sqlServer.Data.Version)
+                    .Append("\n\tFully qualified name for Sql Server: ").Append(sqlServer.Data.FullyQualifiedDomainName);
             Utilities.Log(builder.ToString());
         }
 

@@ -1,14 +1,20 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
-using Microsoft.Azure.Management.AppService.Fluent;
-using Microsoft.Azure.Management.Fluent;
-using Microsoft.Azure.Management.ResourceManager.Fluent;
-using Microsoft.Azure.Management.ResourceManager.Fluent.Core;
-using Microsoft.Azure.Management.Samples.Common;
-using Microsoft.Azure.Management.Sql.Fluent;
+using Azure;
+using Azure.Core;
+using Azure.Identity;
+using Azure.ResourceManager;
+using Azure.ResourceManager.AppService;
+using Azure.ResourceManager.AppService.Models;
+using Azure.ResourceManager.Resources;
+using Azure.ResourceManager.Samples.Common;
+using Azure.ResourceManager.Sql;
+using Azure.ResourceManager.Sql.Models;
 using System;
-using System.Net.Http;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ManageWebAppSqlConnection
 {
@@ -28,13 +34,17 @@ namespace ManageWebAppSqlConnection
          *  - Clean up
          */
 
-        public static void RunSample(IAzure azure)
+        public static async Task RunSample(ArmClient client)
         {
-            string appName = SdkContext.RandomResourceName("webapp1-", 20);
+            AzureLocation region = AzureLocation.EastUS;
+            string appName = Utilities.CreateRandomName("webapp1");
             string appUrl = appName + Suffix;
-            string sqlServerName = SdkContext.RandomResourceName("jsdkserver", 20);
-            string sqlDbName = SdkContext.RandomResourceName("jsdkdb", 20);
-            string rgName = SdkContext.RandomResourceName("rg1NEMV_", 24);
+            string sqlServerName = Utilities.CreateRandomName("jsdkserver");
+            string sqlDbName = Utilities.CreateRandomName("jsdkdb");
+            string rgName = Utilities.CreateRandomName("rg1NEMV_");
+            string firewallName = Utilities.CreateRandomName("firewall_");
+            var lro = await client.GetDefaultSubscription().GetResourceGroups().CreateOrUpdateAsync(Azure.WaitUntil.Completed, rgName, new ResourceGroupData(AzureLocation.EastUS));
+            var resourceGroup = lro.Value;
 
             try
             {
@@ -43,63 +53,90 @@ namespace ManageWebAppSqlConnection
 
                 Utilities.Log("Creating SQL server " + sqlServerName + "...");
 
-                ISqlServer server = azure.SqlServers.Define(sqlServerName)
-                        .WithRegion(Region.USWest)
-                        .WithNewResourceGroup(rgName)
-                        .WithAdministratorLogin(Admin)
-                        .WithAdministratorPassword(Password)
-                        .Create();
+                var sqlServerCollection = resourceGroup.GetSqlServers();
+                var sqlServerData = new SqlServerData(region)
+                {
+                    AdministratorLogin = Admin,
+                    AdministratorLoginPassword = Password,
+                };
+                var sqlServer_lro = await sqlServerCollection.CreateOrUpdateAsync(Azure.WaitUntil.Completed, sqlServerName, sqlServerData);
+                var sqlServer = sqlServer_lro.Value;
 
-                Utilities.Log("Created SQL server " + server.Name);
+                Utilities.Log("Created SQL server " + sqlServer.Data.Name);
 
                 //============================================================
                 // Create a sql database for the web app to use
 
                 Utilities.Log("Creating SQL database " + sqlDbName + "...");
 
-                ISqlDatabase db = server.Databases.Define(sqlDbName)
-                        .Create();
+                var database_lro = sqlServer.GetSqlDatabase(sqlDbName);
+                var database = database_lro.Value;
 
-                Utilities.Log("Created SQL database " + db.Name);
+                Utilities.Log("Created SQL database " + database.Data.Name);
 
                 //============================================================
                 // Create a web app with a new app service plan
 
                 Utilities.Log("Creating web app " + appName + "...");
 
-                IWebApp app = azure.WebApps
-                        .Define(appName)
-                        .WithRegion(Region.USWest)
-                        .WithExistingResourceGroup(rgName)
-                        .WithNewWindowsPlan(PricingTier.StandardS1)
-                        .WithPhpVersion(PhpVersion.V5_6)
-                        .DefineSourceControl()
-                            .WithPublicGitRepository("https://github.com/ProjectNami/projectnami")
-                            .WithBranch("master")
-                            .Attach()
-                        .WithAppSetting("ProjectNami.DBHost", server.FullyQualifiedDomainName)
-                        .WithAppSetting("ProjectNami.DBName", db.Name)
-                        .WithAppSetting("ProjectNami.DBUser", Admin)
-                        .WithAppSetting("ProjectNami.DBPass", Password)
-                        .Create();
+                var webSiteCollection = resourceGroup.GetWebSites();
+                var webSiteData = new WebSiteData(region)
+                {
+                    SiteConfig = new Azure.ResourceManager.AppService.Models.SiteConfigProperties()
+                    {
+                        WindowsFxVersion = "PricingTier.StandardS1",
+                        NetFrameworkVersion = "NetFrameworkVersion.V4_6",
+                        PhpVersion = "PhpVersion.V5_6",
+                        AppSettings =
+                        {
+                            new AppServiceNameValuePair()
+                            {
+                                Name = "ProjectNami.DBHost",
+                                Value = sqlServer.Data.FullyQualifiedDomainName
+                            },
+                            new AppServiceNameValuePair()
+                            {
+                                Name = "ProjectNami.DBName",
+                                Value = database.Data.Name
+                            },
+                            new AppServiceNameValuePair()
+                            {
+                                Name = "ProjectNami.DBUser",
+                                Value = Admin
+                            },
+                            new AppServiceNameValuePair()
+                            {
+                                Name = "ProjectNami.DBPass",
+                                Value = Password
+                            },
+                        }
+                    },
 
-                Utilities.Log("Created web app " + app.Name);
-                Utilities.Print(app);
+                };
+                var webSite_lro = await webSiteCollection.CreateOrUpdateAsync(Azure.WaitUntil.Completed, appName, webSiteData);
+                var webSite = webSite_lro.Value;
+                Utilities.Log("Created web app " + webSite.Data.Name);
+                Utilities.Print(webSite);
 
                 //============================================================
                 // Allow web app to access the SQL server
 
                 Utilities.Log("Allowing web app " + appName + " to access SQL server...");
 
-                Microsoft.Azure.Management.Sql.Fluent.SqlServer.Update.IUpdate update = server.Update();
-                foreach (var ip in app.OutboundIPAddresses)
+                await sqlServer.UpdateAsync( WaitUntil.Completed, new SqlServerPatch());
+                //Microsoft.Azure.Management.Sql.Fluent.SqlServer.Update.IUpdate update = server.Update();
+                var firstIp = webSite.Data.OutboundIPAddresses.FirstOrDefault().ToString();
+                var lastIp = webSite.Data.OutboundIPAddresses.LastOrDefault().ToString();
+                var firewallRuleCollection = sqlServer.GetSqlFirewallRules();
+                var firewallRuleData = new SqlFirewallRuleData()
                 {
-                    update = update.WithNewFirewallRule(ip);
-                }
-                server = update.Apply();
+                    StartIPAddress = firstIp,
+                    EndIPAddress = lastIp,
+                };
+                var firewallRule_lro = await firewallRuleCollection.CreateOrUpdateAsync(WaitUntil.Completed, firewallName, firewallRuleData);
 
                 Utilities.Log("Firewall rules added for web app " + appName);
-                Utilities.PrintSqlServer(server);
+                Utilities.PrintSqlServer(sqlServer);
 
                 Utilities.Log("Your WordPress app is ready.");
                 Utilities.Log("Please navigate to http://" + appUrl + " to finish the GUI setup. Press enter to exit.");
@@ -111,7 +148,7 @@ namespace ManageWebAppSqlConnection
                 try
                 {
                     Utilities.Log("Deleting Resource Group: " + rgName);
-                    azure.ResourceGroups.DeleteByName(rgName);
+                    await resourceGroup.DeleteAsync(WaitUntil.Completed);
                     Utilities.Log("Deleted Resource Group: " + rgName);
                 }
                 catch (NullReferenceException)
@@ -125,24 +162,23 @@ namespace ManageWebAppSqlConnection
             }
         }
 
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             try
             {
                 //=================================================================
                 // Authenticate
-                var credentials = SdkContext.AzureCredentialsFactory.FromFile(Environment.GetEnvironmentVariable("AZURE_AUTH_LOCATION"));
-
-                var azure = Azure
-                    .Configure()
-                    .WithLogLevel(HttpLoggingDelegatingHandler.Level.Basic)
-                    .Authenticate(credentials)
-                    .WithDefaultSubscription();
+                var clientId = Environment.GetEnvironmentVariable("CLIENT_ID");
+                var clientSecret = Environment.GetEnvironmentVariable("CLIENT_SECRET");
+                var tenantId = Environment.GetEnvironmentVariable("TENANT_ID");
+                var subscription = Environment.GetEnvironmentVariable("SUBSCRIPTION_ID");
+                ClientSecretCredential credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+                ArmClient client = new ArmClient(credential, subscription);
 
                 // Print selected subscription
-                Utilities.Log("Selected subscription: " + azure.SubscriptionId);
+                Utilities.Log("Selected subscription: " + client.GetSubscriptions().Id);
 
-                RunSample(azure);
+                RunSample(client);
             }
             catch (Exception e)
             {
