@@ -82,7 +82,7 @@ namespace ManageWebAppSqlConnection
                 var webSiteCollection = resourceGroup.GetWebSites();
                 var webSiteData = new WebSiteData(region)
                 {
-                    SiteConfig = new Azure.ResourceManager.AppService.Models.SiteConfigProperties()
+                    SiteConfig = new SiteConfigProperties()
                     {
                         WindowsFxVersion = "PricingTier.StandardS1",
                         NetFrameworkVersion = "NetFrameworkVersion.V4_6",
@@ -134,6 +134,7 @@ namespace ManageWebAppSqlConnection
                     EndIPAddress = lastIp,
                 };
                 var firewallRule_lro = await firewallRuleCollection.CreateOrUpdateAsync(WaitUntil.Completed, firewallName, firewallRuleData);
+                var firewallRule = firewallRule_lro.Value;
 
                 Utilities.Log("Firewall rules added for web app " + appName);
                 Utilities.PrintSqlServer(sqlServer);
@@ -178,7 +179,7 @@ namespace ManageWebAppSqlConnection
                 // Print selected subscription
                 Utilities.Log("Selected subscription: " + client.GetSubscriptions().Id);
 
-                RunSample(client);
+                await RunSample(client);
             }
             catch (Exception e)
             {
